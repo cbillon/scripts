@@ -1,0 +1,72 @@
+#!/bin/bash
+# 1 : $1 : projet
+#set -x
+# 
+# Author : claude.billon@gmail.com
+#
+# This software is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# It is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details
+
+exec 1> >(logger -s -t $(basename $0)) 2>&1
+
+function run {
+	"$@"
+	local status=$?
+	if [ $status -ne 0 ]; then
+        echo "Error with $1"
+    fi
+    return $status
+}
+
+if [ $# -eq 0 ]
+  then
+     echo 'Project parameter missing'
+     exit 1
+fi
+
+if [ $1 == '-h' ] || [ $1 == '--help' ];
+then
+  printf " nom du projet parametres optionels update nom du plugin voir detail \n"
+  exit 1
+fi
+echo "Projet $1"
+. ./$1.cnf || exit "unable to load ${1}"
+PROJECT=$1
+# Le script
+CURRENT_DIR=$(dirname $0)
+SCRIPT_NAME=$(basename $0)
+HOSTNAME=$(hostname)
+DATE_DU_JOUR=$(date)
+
+if [ $(whoami) == 'root' ]
+  then
+  echo "Ce script ne doit pas être utilisé par le compte root."
+  exit 1
+fi
+
+ERROR=0
+
+cd $SCRIPTS_MOODLE
+
+while read p; do
+  # echo "line $p"
+  myArray=($p)
+  PLUGIN=${myArray[0]}
+  BRANCH=${myArray[1]}
+  SHA1=${myArray[2]}
+   echo "Call ${SCRIPTS_MOODLE}/updm $1 $PLUGIN $BRANCH"
+  if [ $PLUGIN != '#' ]; then
+     run "${SCRIPTS_MOODLE}/updm" $1 $PLUGIN $BRANCH
+     echo "Status $?"    
+  fi
+
+done <"${SCRIPTS_MOODLE}/${PROJECT}.plugins"
+echo "That's All $PROJECT "
+exit 0

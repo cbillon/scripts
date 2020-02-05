@@ -1,0 +1,199 @@
+#!/bin/bash
+# $1 : PROJECT
+# $2 : nom du module à ajouter
+# $3 : branche du plug in (défaut master)
+# $4 : SHA1 optionnel si present version prise en compte pour la version du plugin
+#set -x
+# 
+# Author : claude.billon@gmail.com
+#
+# This software is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# It is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details
+
+#CURRENT=`git branch | grep '\*' | awk '{print $BRANCH_PROJECT}'`
+# Pas d'ajout automatique de patchs
+PATCH='N'
+
+exec 1> >(logger -s -t $(basename "${0}")) 2>&1
+
+if [ $# -eq 0 ]
+  then
+     echo 'Project parameter missing'
+     exit 1
+fi
+
+if [ "${1}" == '-h' ] || [ "${1}" == '--help' ];
+then
+  printf " 1 nom du PROJECT\n 2 nom du module à ajouter\n 3 branche du module (par défaut master)\n"
+  exit 0
+fi
+
+[ $EUID -eq 0 ] && echo "This script must be run as normal user" && exit 1 
+
+. ./"${1}".cnf || exit 1
+
+PROJECT=$1
+# Le script
+CURRENT_DIR=$(dirname "${0}")
+SCRIPT_NAME=$(basename "${0}")
+HOSTNAME=$(hostname)
+DATE_DU_JOUR=$(date)
+
+[ ! "${3}" ] && echo "${3} branch missing" && exit 1
+
+# Ouverture de notre fichier de log 
+echo "Parametres : ${PROJECT} ${2} ${3}  ${4} " 
+# Initialisation signal erreur
+error=0
+
+declare -A mymap=([lifecyclestep]=admin/tool/lifecycle/step [lifecycletrigger]=admin/tool/lifecycle/trigger [local]=local [availability]=availability/condition [qtype]=question/type [mod]=mod [auth]=auth [calendartype]=calendar/type [enrol]=enrol [message]=message/output [block]=blocks [filter]=filter [editor]=lib/editor [format]=course/format [profilefield]=user/profile/field [report]=report [coursereport]=course/report [gradeexport]=grade/export [gradeimport]=grade/import [gradereport]=grade/report [gradingform]=grade/grading/form [mnetservice]=mnet/service [webservice]=webservice [repository]=repository [portfolio]=portfolio [qbehaviour]=question/behaviour [qformat]=question/format [plagiarism]=plagiarism [tool]=admin/tool [cachestore]=cache/stores [cachelock]=cache/locks [theme]=theme [assignsubmission]=mod/assign/submission [assignfeedback]=mod/assign/feedback [assignment]=mod/assignment/type [booktool]=mod/book/tool [datafield]=mod/data/field [datapreset]=mod/data/preset [ltisource]=mod/lti/source [ltiservice]=mod/lti/service [quiz]=mod/quiz/report [quizaccess]=mod/quiz/accessrule [scormreport]=mod/scorm/report [workshopform]=mod/workshop/form [workshopallocation]=mod/workshop/allocation [workshopeval]=mod/workshop/eval [atto]=lib/editor/atto/plugins [tinymce]=lib/editor/tinymce/plugins [logstore]=admin/tool/log/store)
+
+cd "$DEPOT_MODULES" || exit 1
+cd "$DEPOT_MODULES"/"$2" || exit 1 
+
+SITEREMOTE=$(git remote | grep 'upstream')
+echo 'site remote : ' "${SITEREMOTE}" 
+
+if [[ $SITEREMOTE == 'upstream' ]]; then
+  git fetch upstream
+  [ $? -ne 0 ] && error=1 &&  echo "error git fetch upstream" 
+  git show-ref --verify --quiet refs/heads/"${3}"
+  [ $? -ne 0 ] && error=1 &&  echo "error  git show-ref ref/heads/${3}" 
+     
+  if [ $4 ]; 
+    then
+      status=$(git checkout "$4")
+      [ $?  -ne 0 ] && error=1 &&  echo "error git checkout $4" 
+    else
+      status=$(git checkout "$3")
+      [ $?  -ne 0 ] &&  echo "error git checkout $3" && exit 1 
+  fi
+     
+  BRANCHREMOTE=$(git rev-parse --abbrev-ref $branch@{upstream})
+  echo "branche remote : $BRANCHREMOTE" 
+     
+  if [[ $BRANCHREMOTE == upstream/$3 ]]; then
+    LOCAL=$(git rev-parse @)
+    REMOTE=$(git rev-parse @{u})
+    BASE=$(git merge-base @ @{u})
+
+    if [ "$LOCAL" = "$REMOTE" ]; then
+      echo "$2 $3 up-to-date with remote $BRANCHREMOTE" 
+    elif [ "$LOCAL" = "$BASE" ]; then           
+      echo "$2 $3 need to pull from remote $$BRANCHREMOTE" 
+    elif [ "${REMOTE}" = "${BASE}" ]; then           
+      echo "$2 $3 need to push to remote $BRANCHREMOTE" 
+    else           
+      echo "$2 $3 diverged with remote $BRANCHREMOTE !!!" 
+    fi
+  fi
+fi
+
+cd "${MOODLE_SRC}" || exit 1
+
+if [ $error -eq 0 ];  then
+  echo "Branche projet $BRANCH_PROJET"
+  git checkout "$BRANCH_PROJET"
+  [ $? -ne 0 ] && error=1 &&  echo "error git checkout ${BRANCH_PROJECT}" 
+  echo "git checkout ${BRANCH_PROJECT} OK"
+  mod=$2
+  ss=${mod#*-}
+  nom=${mod#*_}
+  sss=${ss%%_*}
+
+  dir=${mymap[${sss}]}
+  if [[ -z $dir ]];
+    then error=1 && echo "prefixe $sss  inconnu"  ;
+  fi
+
+  if [ -d "./${dir}/${nom}" ]; then
+    echo "${nom} existe déjà dans le dossier ${dir} .Mode mise à jour UPD" 
+    MOD='UPD'
+  else
+    echo "${nom} n'existe pas dans le dossier ${dir}. Mode mise à jour ADD" 
+    MOD='ADD'
+  fi
+
+  echo "Moodle source : ${MOODLE_SRC}" 
+  echo "Branche courante : ${BRANCH_PROJET}" 
+  echo "Dépot modules: ${DEPOT_MODULES}" 
+  echo "Module : $2" 
+  echo "Branche du module: ${3}" 
+  echo "Valeur MOD : ${MOD}" 
+
+  if [[ "$MOD" == 'ADD' && "$error" -eq 0 ]]; then
+    #echo "git subtree add --prefix=${dir}/${nom} --squash  $DEPOT_MODULES/$2 ${3}"
+    echo "git subrepo clone $DEPOT_MODULES/$2 ${dir}/${nom} -b ${3}"
+    #git subtree add --prefix="${dir}"/$nom  --squash $DEPOT_MODULES/$2 $BRANCHE
+    git subrepo clone "$DEPOT_MODULES"/"$2" "$dir"/"$nom" -b "$3"
+    [ $? -ne 0 ] && error=1 &&  echo "error git subtree"
+  fi
+
+  if [[ "$MOD" == 'UPD' && "$error" -eq 0 ]]; then
+    #echo "git subtree pull --prefix=${dir}/${nom} --squash  $DEPOT_MODULES/$2 ${BRANCHE}"
+    echo "git subrepo pull ${dir}/${nom}"
+    #git subtree pull --prefix="${dir}"/$nom  --squash $DEPOT_MODULES/$2 $BRANCHE
+    git subrepo pull "$dir"/"$nom"
+    [ $? -ne 0 ] && error=1 &&  echo "error git subrepo pull" 
+  fi
+
+  if [[ "$error" -eq 0 ]]; then
+    if [ -d "./${dir}/${nom}/__customscripts" ]; then
+        echo 'mise à jour customscripts'
+        if [ ! -d ./customscripts ]; then
+          mkdir -p ./customscripts
+        fi
+        rsync -a "./${dir}/${nom}/__customscripts/"  ./customscripts
+        git add .
+        git commit -m "Ajout customscripts ${nom}"
+    fi
+
+    if [ -d "./${dir}/${nom}/__patch" ]; then
+        if [ $PATCH == 'Y' ]; then
+          echo "Ajout patch ${nom}" 
+          rsync -a "./${dir}/${nom}/__patch/"  ./
+          git add .
+          git commit -m "Ajout patch ${nom}"
+        else
+          echo "Pas d'ajout de patch ${nom} !!!" 
+        fi
+    fi
+   
+    LINE="${mod} ${3}"
+
+    FILE="${SCRIPTS_MOODLE}/${PROJECT}.plugins"
+     
+    if [ ! -e "$FILE" ]; then
+      touch "$FILE"
+      [ $? -ne 0 ] && echo "*** Problème pour créer le dossier $FILE ***" && exit 1
+    fi
+    
+    grep -q "$LINE" "$FILE"
+    
+    if [ $? == 1 ]; then
+    # LINE not found 
+      echo "$LINE">> "$FILE"
+      echo "Ajout de ${mod} : ${3}" 
+      #git add $FILE
+      #git commit -m "Ajout de ${mod} ${BRANCHE} ${now}"     
+    fi
+
+  fi
+
+fi
+# Envoi d'un email de notification
+if [ $error -ne 0 ]
+    then        
+        echo "Problème lors de l'éxécution de (${0}). Merci de corriger le processus." 
+        exit 1
+    else        
+        echo "Script  (${0}) exécuté avec succès."  
+        exit 0
+fi

@@ -1,0 +1,114 @@
+#!/bin/bash
+
+# 1 nom du projet
+# 2 message du tag créé lors du déploiement
+# 
+# Author : claude.billon@gmail.com
+#
+# This software is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# It is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details
+
+exec 1> >(logger -s -t $(basename $0)) 2>&1
+
+if [ $# -eq 0 ]
+  then
+     echo 'Project parameter missing;see deploy -h'
+     exit 1
+fi
+
+if [ "$1" == '-h' ]  || [ "$1" == '--help' ];
+then
+   printf " 1 nom du projet\n 2 message du tag créé lors du déploiement\n"
+   exit 0
+fi
+
+[ $EUID -eq 0 ] && echo "This script must be run as normal user" && exit 1 
+
+. ./$1.cnf ||  (echo "unable to load ${1}.cnf" && exit 1)
+
+error=0
+
+echo "Branche source Moodle: ${BRANCH_PROJET} "
+
+# Message deploiement
+if [[ $2 ]]; then
+  MSG=$2
+  echo "Message déploiement ${MSG}"  
+else
+  echo 'Pas de message de déploiement..'
+fi
+
+[ $error -ne 0 ] &&	exit 1
+
+RELEASE=$(date +%Y.%m.%d@%Hh%M)
+  
+cd "$MOODLE_SRC" || exit 1
+
+git checkout "$BRANCH_PROJET"
+RETVAL=$?
+[ $RETVAL -ne 0 ]&& echo "Erreur $RETVAL git git checkout $BRANCH_PROJET"&& exit $RETVAL
+
+git tag -a "${RELEASE}"  -m "${MSG}"
+RETVAL=$?
+[ $RETVAL -ne 0 ]&& echo "Erreur $RETVAL git tag $RELEASE"&& exit $RETVAL
+
+#git clone "$MOODLE_SRC" "$RACINE"/services/web/"$1"/releases/"$RELEASE" --branch="$BRANCH_PROJET" 
+#RETVAL=$?
+#[ $RETVAL -ne 0 ]&& echo "Erreur $RETVAL git clone "&& exit $RETVAL 
+#cd $RACINE/services/web/$1/releases/$RELEASE
+#rm -rf .git
+build="$RACINE"/services/web/"$1"/releases/"$RELEASE"
+echo "Création build $build"
+mkdir "$build" || exit 1
+cp -r "$MOODLE_SRC"/*  "$build"
+
+if [ -e $RACINE/services/web/$1/current/config.php ]; then 
+  echo "recopie config.php depuis $RACINE/services/web/$1/current/config.php"   
+  cp $RACINE/services/web/$1/current/config.php $RACINE/services/web/$1/releases/$RELEASE
+  cp $RACINE/services/web/$1/current/config.php $RACINE/services/web/$1/configphp/
+else
+  echo "$RACINE/services/web/$1/current/config.php n'existe pas"
+  cp $RACINE/services/web/$1/configphp/config.php $RACINE/services/web/$1/releases/$RELEASE/
+fi
+
+sudo -u www-data /usr/bin/php  $RACINE/services/web/$1/releases/$RELEASE/admin/cli/maintenance.php --enable
+echo 'mode maintenance enable'
+sudo -u www-data /usr/bin/php  $RACINE/services/web/$1/releases/$RELEASE/admin/cli/upgrade.php  --non-interactive
+MAJ=$?
+echo 'upgrade finished'
+sudo -u www-data /usr/bin/php  $RACINE/services/web/$1/releases/$RELEASE/admin/cli/maintenance.php --disable
+echo 'mode maintenance disable'
+
+if [ "$MAJ" -eq 0 ]; then
+
+  ln -s $RACINE/services/web/$1/releases/$RELEASE current_temp
+  mv -Tf current_temp  $RACINE/services/web/$1/current
+
+  echo 'Purge all caches'
+  sudo -u www-data /usr/bin/php  $RACINE/services/web/$1/current/admin/cli/purge_caches.php
+
+
+  if [ -d $SCRIPTS_MOODLE/patches ]; then
+    echo "Installation des patches ${SCRIPTS_MOODLE}/patches"
+    cp -R $SCRIPTS_MOODLE/patches/* $RACINE/services/web/$1/current/
+  else
+    echo "Aucun patch à installer"
+  fi
+
+  echo 'Apache restart to clear Opcache'
+  sudo systemctl restart apache2
+
+  sudo systemctl restart "php${PHP}-fpm"
+   echo 'Mise à jour OK'
+   exit 0
+else 
+  echo 'erreur de mises à jour'
+  exit 1
+fi

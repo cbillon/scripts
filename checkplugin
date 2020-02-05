@@ -1,0 +1,106 @@
+#!/bin/bash
+# $1 : projet
+# $2 : nom du plug in
+# $3 : branche du plug in (défaut master)
+# $4 : O update if necessary
+#set -x
+# 
+# Author : claude.billon@gmail.com
+#
+# This software is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# It is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details
+
+#CURRENT=`git branch | grep '\*' | awk '{print $BRANCH_PROJET}'`
+
+exec 1> >(logger -s -t $(basename $0)) 2>&1
+
+if [ $# -eq 0 ]
+  then
+     echo 'Project parameter missing'
+     exit 1
+fi
+
+if [ $1 == '-h' ] || [ $1 == '--help' ];
+then
+  printf " 1 nom du projet\n 2 nom du module à ajouter\n 3 branche du module (par défaut master)\n"
+  exit 1
+fi
+. ./$1.cnf || exit "unable to load ${1}"
+
+# Le script
+CURRENT_DIR=$(dirname $0)
+SCRIPT_NAME=$(basename $0)
+HOSTNAME=$(hostname)
+DATE_DU_JOUR=$(date)
+
+if [ $(whoami) = 'root' ]
+  then
+  echo "Ce script ne doit pas être utilisé par le compte root."
+  exit 1
+fi
+
+# Initialisation signal erreur
+error=0
+
+if [ "${3}" ]; then
+    BRANCHE="${3}"
+  else
+    #si param $3 non renseigné BRANCHE = master
+    BRANCHE="master"
+fi
+
+echo "Parametres : ${1} ${2} ${BRANCHE}"  
+
+cd $DEPOT_MODULES || exit 1
+cd "${2}" || exit 1
+
+SITEREMOTE=$(git remote | grep 'upstream')
+echo 'site remote : ' $SITEREMOTE
+
+if [[ $SITEREMOTE == 'upstream' ]]; then
+  git fetch upstream
+  [ $? -ne 0 ] && error=1 &&  echo "error git fetch upstream ${2}" 
+  git show-ref --verify --quiet refs/heads/"${BRANCHE}"
+  [ $? -ne 0 ] && error=1 &&  echo "error git show-ref --verify --quiet refs/heads/${BRANCHE}" 
+  git checkout "${BRANCHE}"
+  [ $? -ne 0 ] && error=1 &&  echo "error git checkout ${BRANCHE}" 
+  BRANCHREMOTE=$(git rev-parse --abbrev-ref $branch@{upstream})
+  echo 'Branche remote : ' $BRANCHREMOTE
+  if [[ $BRANCHREMOTE == upstream/${3} ]]; then
+    LOCAL=$(git rev-parse @)
+    REMOTE=$(git rev-parse @{u})
+    BASE=$(git merge-base @ @{u})
+
+    if [ $LOCAL = $REMOTE ]; then
+      echo "${2} ${BRANCHE} up-to-date with remote $BRANCHREMOTE" 
+    elif [ $LOCAL = $BASE ]; then           
+      echo "${2} ${BRANCHE} need to pull from remote $BRANCHREMOTE" 
+      if [ "$4" == 'O' ]; then
+        git checkout $BRANCHE
+        git pull
+      fi
+
+    elif [ $REMOTE = $BASE ]; then           
+      echo "${2} ${BRANCHE} need to push to remote $BRANCHREMOTE" 
+    else           
+      echo "${2} ${BRANCHE} diverged with remote $BRANCHREMOTE !!!" 
+    fi
+  fi
+fi
+
+if [ $error -ne 0 ]
+  then        
+    echo "Problème lors de l'éxécution de (${0}). Merci de corriger le processus." 
+    exit 1
+  else        
+    echo "Script  (${0}) exécuté avec succès."  
+#        echo -e "\e[101m Yes it is awful \e[0m"
+        exit 0
+fi

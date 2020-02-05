@@ -1,0 +1,185 @@
+#!/bin/bash
+# 1 nom du projet
+# 2 github bitbucket
+# 3 parametre nom du propriétaire du dépot 
+# 4 parametre nom du plugin frankenstyle 
+# 5 nom de la branche à récuperer; par défaut master
+# 6  nom dans le depot upstream (par defaut idem parametre 3)
+#set -x
+# 
+# Author : claude.billon@gmail.com
+#
+# This software is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# It is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details
+
+## Ouverture de notre fichier de log 
+exec 1> >(logger -s -t $(basename "${0}")) 2>&1
+#ORIGIN=git@bitbucket.org:cbillon
+ORIGIN=https://cbillon@bitbucket.org/cbillon
+#REPO='github' #  github or bitbucket
+REPO='bitbucket' #  github or bitbucket
+REVERSE=0 # = 1 si on doit récupérer le module depuis le depot distant
+MAJ=0    # =1 si on doit metre à jour le depot distant
+
+if [ "$1" == '-h' ] || [ "$1" == '--help' ]; 
+then
+  printf " 1 nom du projet \n 2 propriétaire du depot github\n 3 nom standard\n 4 branche(master par défaut)\n 5 nom depot upstream(par défaut parametre 2)\n"
+  exit 1
+fi
+
+[ $EUID -eq 0 ] && echo "This script must be run as normal user" && exit 1 
+ 
+. ./"$1".cnf || exit 1
+
+echo "******************** ${SCRIPT_NAME} ** ${HOSTNAME} ** ${DATE_DU_JOUR} ****************" 
+echo "Parametres: $PROJET $2 $3 $4 $5 $6" 
+
+#[ "$2" == 'github' ] || [ "$2" == 'bitbucket' ] && exit 1
+REPO="$2"
+echo "repository $REPO"
+
+if [ "$3" ];
+then
+  UPSTREAM="git@$REPO:$3"
+  OWNER="$3"
+  echo "git repository's owner $UPSTREAM"
+else
+  echo "parameter 2 missing : repository's sowner"
+  exit 3
+fi
+
+if [ "$4" ];
+then
+  PLUGIN="$4"
+  echo "frankenstyle plugin's name $PLUGIN" 
+else  
+  echo "parameter 3 missing : frankenstyle plugin's name"
+  exit 3
+fi
+
+#si param 4 non renseigné branche = master
+
+if [ "$5" ];
+then
+  BRANCH=$5
+else
+  BRANCH="master"
+fi
+echo "branch $BRANCH"
+
+if [ "$6" ];
+then
+  UNAME="$6"
+else
+  UNAME="$4"
+fi
+echo "plugin's name frankenstyle $PLUGIN  upstream name $UNAME"
+
+SCRIPT_NAME=$(basename "$0")
+HOSTNAME=$(hostname)
+DATE_DU_JOUR=$(date)
+
+error=0
+
+cd "$DEPOT_MODULES" || exit 1
+
+if [ -d "$DEPOT_MODULES"/"$PLUGIN" ];
+then
+	echo "${PLUGIN} already exists" 
+  exit 5
+fi
+
+# test if already exists repository origin
+if [[ $REVERSE -eq 1 ]]; then
+
+  echo "Essais clonage depuis ${ORIGIN}"
+
+  git clone https://cbillon@bitbucket.org/cbillon/$PLUGIN.git $PLUGIN
+
+  if [[ $? -eq 0 ]]; then
+    echo "Module $PLUGIN récupéré sur dépot origin" 
+    cd $DEPOT_MODULES/$PLUGIN
+    git remote add upstream $UPSTREAM/$NOM.git
+    [ $? -ne 0 ] && echo "erreur remote add ${UPSTREAM}/ ${NOM}.git" && exit 4
+    git fetch upstream
+    [ $? -ne 0 ] && echo "erreur fetch upstream" && exit 6
+    git checkout -b $BRANCH upstream/$BRANCH
+    [ $? -ne 0 ] && echo "erreur git checkout -b ${BRANCH} upstream/${BRANCH}" && exit 7
+    git diff upstream/$BRANCH..origin/$BRANCH
+    [ $? -ne 0 ] && echo "erreur git diff upstream/${BRANCH}..origin/${BRANCH}" && exit 8
+    exit 0
+  fi
+
+fi
+git clone "$UPSTREAM"/"$UNAME".git "$PLUGIN"
+[ $? -ne 0 ] && echo "erreur git clone $UPSTREAM/$UNAME.git $PLUGIN" && exit 9
+ 
+#git clone git@github.com/vfremaux/"$NOM".git
+
+echo "depot ${DEPOT_MODULES} : ${UPSTREAM} est cloné sous ${PLUGIN}" 
+cd "$DEPOT_MODULES"/"$PLUGIN" || exit 10
+
+git checkout $BRANCH 
+[ $? -ne 0 ] && echo "erreur git checkout ${BRANCH}" && exit 11
+
+git remote rename origin upstream
+[ $? -ne 0 ] && echo "erreur git remote rename origin  upstream" && exit 12
+echo 'remote repository renamed upstream'
+
+if [[ $MAJ -eq 1 ]]; then
+# creation du depot sur bitbucket;org
+
+  curl -k -X POST --user cbillon:sesame311 "https://api.bitbucket.org/1.0/repositories" -d "name=${3}" -d "is_private='true'"
+  [ $? -ne 0 ] && echo "erreur création remote ${3}.git" && exit 13
+
+  echo "config remote origin: ${ORIGIN}/$PLUGIN" 
+#git remote set-url origin $ORIGIN/$PLUGIN.git
+#if [[ $? -ne 0 ]]; then
+
+  git remote add origin "$ORIGIN"/"$PLUGIN".git
+    [ $? -ne 0 ] && echo "erreur remote add ${ORIGIN}/ ${3}.git" && exit 14
+#fi
+ 
+  echo "Mise à jour du depot distant" 
+  git push -u origin --all
+  [ $? -ne 0 ] && echo "erreur git push -u origin --all" && exit 15
+  git push -u origin --tags
+  [ $? -ne 0 ] && echo "erreur git push -u origin --tags" && exit 16
+
+fi
+
+#echo "config remote upstream: ${UPSTREAM}/${NOM}"
+#git remote add upstream $UPSTREAM/$NOM.git
+ #[ $? -ne 0 ] && echo "erreur git remote add upstream ${UPSTREAM}/${NOM}.git" && exit 2
+echo "liste remote"
+git remote -v
+
+echo "Liste des branches"
+git branch -a
+
+FILE="${DEPOT_MODULES}/upstream"
+if [[ ! -f $FILE ]]; then
+  touch "$FILE"
+fi
+
+LINE="$OWNER $PLUGIN $BRANCH $UPSTREAM"
+
+grep -q "$LINE" "$FILE" || echo "$LINE">> "$FILE" 
+
+if [ "${error}" -ne 0 ]
+    then
+        echo "Problème lors de l'éxécution de (${0}). Merci de corriger." 
+        #mail -s "[FAILED] Rapport Dump MySql (${0})" $MAIL_ADMIN <"${out}"
+        exit 1
+    else
+        echo "Script  (${0}) exécuté avec succès."  
+        #mail -s "[OK] Rapport Dump MySql (${0})" $MAIL_ADMIN <"${out}"
+        exit 0
+fi

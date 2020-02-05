@@ -1,0 +1,90 @@
+#!/bin/bash
+# ${1} : PROJECT
+# $2 : nom du module à supprimer
+#set -x
+# 
+# Author : claude.billon@gmail.com
+#
+# This software is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# It is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details
+
+exec 1> >(logger -s -t $(basename $0)) 2>&1
+
+if [ $# -eq 0 ]
+  then
+     echo 'Project parameter missing'
+     exit 1
+fi
+
+if [ ${1} == '-h' ] || [ ${1} == '--help' ];
+then
+  printf " 1 nom du PROJECT\n 2 nom du module à supprimer\n"
+  exit 1
+fi
+
+[ "$EUID" -eq 0 ] && echo "This script must be run as normal user" && exit 1 
+. ./${1}.cnf || exit 1
+
+PROJECT=${1}
+# Le script
+CURRENT_DIR=$(dirname $0)
+SCRIPT_NAME=$(basename $0)
+HOSTNAME=$(hostname)
+DATE_DU_JOUR=$(date)
+
+echo "Parametres : ${PROJET} ${2}" 
+
+# Initialisation signal erreur
+error=0
+
+declare -A mymap=([lifecyclestep]=admin/tool/lifecycle/step [lifecycletrigger]=admin/tool/lifecycle/trigger [local]=local [availability]=availability/condition [qtype]=question/type [mod]=mod [auth]=auth [calendartype]=calendar/type [enrol]=enrol [message]=message/output [block]=blocks [filter]=filter [editor]=lib/editor [format]=course/format [profilefield]=user/profile/field [report]=report [coursereport]=course/report [gradeexport]=grade/export [gradeimport]=grade/import [gradereport]=grade/report [gradingform]=grade/grading/form [mnetservice]=mnet/service [webservice]=webservice [repository]=repository [portfolio]=portfolio [qbehaviour]=question/behaviour [qformat]=question/format [plagiarism]=plagiarism [tool]=admin/tool [cachestore]=cache/stores [cachelock]=cache/locks [theme]=theme [assignsubmission]=mod/assign/submission [assignfeedback]=mod/assign/feedback [assignment]=mod/assignment/type [booktool]=mod/book/tool [datafield]=mod/data/field [datapreset]=mod/data/preset [ltisource]=mod/lti/source [ltiservice]=mod/lti/service [quiz]=mod/quiz/report [quizaccess]=mod/quiz/accessrule [scormreport]=mod/scorm/report [workshopform]=mod/workshop/form [workshopallocation]=mod/workshop/allocation [workshopeval]=mod/workshop/eval [atto]=lib/editor/atto/plugins [tinymce]=lib/editor/tinymce/plugins [logstore]=admin/tool/log/store)
+
+cd "$MOODLE_SRC" || exit
+
+
+git checkout "$BRANCH_PROJET"
+[ $? -ne 0 ] &&  echo "error  git checkout ${BRANCH_PROJET}" && exit 1
+
+mod=${2}
+ss=${mod#*-}
+nom=${mod#*_}
+sss=${ss%%_*}
+
+dir=${mymap[${sss}]}
+if [[ -z $dir ]];
+  then error=1 && echo "prefixe $sss  inconnu"  
+fi
+
+if [ -d "./${dir}/${nom}" ]; then
+  echo "${nom} existe dans le dossier ${dir}" 
+  git subrepo clean $dir/$nom
+  [ $? -ne 0 ] && error=1 &&  echo "git subrepo clean ${dir}/${nom}"  
+  git rm -r  $dir/$nom
+  [ $? -ne 0 ] && error=1 &&  echo "git rm -r ${dir}/${nom} "  
+  git commit -m "Suppression du plugin ${2}"  
+  [ $? -ne 0 ] && error=1 &&  echo "git commit"   
+
+  LINE="${mod}"
+  FILE="${SCRIPTS_MOODLE}/${PROJECT}.plugins"
+  # remove plugins from "$FILE"
+  [ "$FILE" ] && sed -i "/${mod}/d" "$FILE"
+    
+else  
+  echo "${nom} n'existe pas dans le dossier ${dir}"       
+fi
+
+if [ $error -ne 0 ]
+ then
+    echo "Problème lors de l'éxécution de ${0}. Merci de corriger."  
+    exit 1
+ else
+    echo "Script  ${0} exécuté avec succès."   
+    exit 0
+fi

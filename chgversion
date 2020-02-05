@@ -1,0 +1,61 @@
+#!/bin/bash
+
+# 1 nom du projet
+# 2 version
+# 
+# Author : claude.billon@gmail.com
+#
+# This software is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# It is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details
+
+exec 1> >(logger -s -t $(basename $0)) 2>&1
+
+if [ $# -eq 0 ]; 
+  then
+    echo 'Project parameter missing;see deploy -h'
+    exit 1
+fi
+
+if [ "$1" == '-h' ]  || [ "$1" == '--help' ];
+then
+   printf " 1 nom du projet\n 2 message du tag créé lors du déploiement\n"
+   exit 0
+fi
+
+[ $EUID -eq 0 ] && echo "This script must be run as normal user" && exit 1 
+
+. ./"$1".cnf || exit 1
+
+[ ! "$WEB"/"$PROJET"/releases/"${2}" ] && echo "version incorrect" && exit 1
+
+BUILD="$WEB"/"$PROJET"/releases/"${2}"
+
+cd "$BUILD" || exit 1
+
+sudo rm -r "$WEB"/"$PROJET"/current
+ln -s "$BUILD" /data/services/web/"$PROJET"/current
+echo "Build $2 restored"
+echo 'Purge all caches'
+sudo -u www-data /usr/bin/php  "$RACINE"/services/web/"$PROJET"/current/admin/cli/purge_caches.php
+
+if [ -d "$SCRIPTS_MOODLE"/patches ]; then
+  echo "Installation des patches $SCRIPTS_MOODLE/patches"
+  cp -R "$SCRIPTS_MOODLE"/patches/* "$WEB"/"$PROJET"/current/
+else
+  echo "Aucun patch à installer"
+fi
+
+echo 'Apache restart to clear Opcache'
+sudo systemctl restart apache2
+
+sudo systemctl restart "php${PHP}-fpm"
+echo "That's All!"
+
+exit 0

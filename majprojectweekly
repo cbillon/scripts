@@ -1,0 +1,119 @@
+#!/bin/bash
+
+# $1 nom du projets
+# recupere le fichier conf $1.cnf
+# 
+# Author : claude.billon@gmail.com
+#
+# This software is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# It is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details
+
+exec 1> >(logger -s -t $(basename $0)) 2>&1
+
+if [ $(whoami) = 'root' ]
+then
+  echo "Ce script ne doit pas être utilisé avec le compte root."
+  exit 1
+fi
+
+. ./"$1".cnf || (echo "unable to load ${1}.cnf" && exit 1)
+
+echo "${1}.cnf loaded"
+
+PROJET=$1
+#
+MOODLE_UPDATE_ORIGIN='N'
+# MOODLE_UPDATE_ORIGIN='Y' mise à jour du épot origin
+#
+
+echo "Mise à jour branche origin : ${MOODLE_UPDATE_ORIGIN}"
+# Le scriptCURRENT_DIR=$(dirname $0)
+SCRIPT_NAME=$(basename "$0")
+HOSTNAME=$(hostname)
+DATE_DU_JOUR=$(date)
+
+# mets à jour depuis le depot upstream depot officiel Moodle le depot local et le depot 
+# origin si MOODLE_UPDATE_ORIGIN='Y'
+
+# Initialisation signal erreur 
+error=0
+
+echo "Parametres : ${PROJET}"
+
+cd "${MOODLE_SRC}" || exit
+
+[ "$(git status --porcelain)" ] && echo "Check depot moodle not clean" && exit 1
+
+echo "dépôt source local : ${MOODLE_SRC}"
+echo "depôt upstream " $(cat .git/config | grep -A1 'remote "upstream"' | tail -n 1)
+
+echo "début maj dépôt source local depuis Moodle..."
+
+[ "$(git fetch upstream)" ] && echo "error git fetch upstream"
+#git fetch upstream
+#[ $? -ne 0 ] && error=1 &&  echo "error git fetch upstream" && exit 1
+
+echo "${MOODLE_SRC} : fin   maj dépôt source local depuis Moodle..."
+
+BRANCH_MOODLE="MOODLE_${VERSION}_STABLE"
+
+if [[ ! $(git branch --list "$BRANCH_MOODLE" | grep "^.*${BRANCH_MOODLE}") ]]; then
+  echo Création de la branche "$BRANCH_MOODLE"
+  git branch -t "$BRANCH_MOODLE" upstream/"$BRANCH_MOODLE"
+  if [[ $MOODLE_UPDATE_ORIGIN == 'Y' ]]; then
+    echo "Mise à jour depot origin branche distante ${BRANCH_MOODLE}"
+    git push origin -u "$BRANCH_MOODLE"
+    [ $? -ne 0 ] && error=1 &&  echo "error git push origin ${BRANCH_MOODLE}"&& exit 1
+  fi   
+fi
+
+echo "${MOODLE_SRC} : deb maj ${BRANCH_MOODLE}"
+
+git checkout "${BRANCH_MOODLE}"
+[ $? -ne 0 ] && error=1 &&  echo "error git checkout ${BRANCH_MOODLE}"&& exit 1
+git merge --ff-only  upstream/"${BRANCH_MOODLE}"
+[ $? -ne 0 ] && error=1 &&  echo "error git merge --ff-only  upstream/${BRANCH_MOODLE}"&& exit 1
+if [[ "${MOODLE_UPDATE_ORIGIN}" == 'Y' ]]; then
+  echo "Mise à jour depot origin branche distante ${BRANCH_MOODLE}"
+  git push origin "${BRANCH_MOODLE}"
+  [ $? -ne 0 ] && error=1 &&  echo "error git push origin ${BRANCH_MOODLE}"&& exit 1
+fi
+
+echo "${MOODLE_SRC} : fin maj Branche Moodle ${BRANCH_MOODLE}"
+
+echo "Mise à jour branche projet  ${BRANCH_PROJET}"
+
+if [[ $(git branch --list "${BRANCH_PROJET}" | grep "^.*${BRANCH_PROJET}") ]]; then
+  git checkout "$BRANCH_PROJET"
+  [ $? -ne 0 ] && error=1 &&  echo "error git checkout ${BRANCH_PROJET}"&& exit 1
+  git merge "${BRANCH_MOODLE}"
+  [ $? -ne 0 ] && error=1 &&  echo "error git merge ${BRANCH_PROJET}"&& exit 1
+# git push origin $BRANCH_PROJET
+else
+  git branch "${BRANCH_PROJET}"  "$BRANCH_MOODLE"
+  [ $? -ne 0 ] && error=1 &&  echo "error git branch ${BRANCH_PROJET}"&& exit 1
+  echo "${BRANCH_PROJET} a été créée"
+fi
+ 
+ echo "Fin de mise à jour de la branche  ${BRANCH_PROJET} du projet ${PROJET}"
+
+
+echo "dépôt source local : ${MOODLE_SRC}"
+echo "dépôt mise à jour depot origin  : ${MOODLE_UPDATE_ORIGIN}"
+
+# Envoi d'un email de notification
+if [ "${error}" -ne 0 ]
+    then        
+        echo "Problème lors de l'éxécution de (${0}). Merci de corriger le processus." 
+        exit 1
+    else       
+        echo "Script  (${0}) exécuté avec succès."  
+        exit 0
+fi

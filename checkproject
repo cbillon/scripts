@@ -1,0 +1,165 @@
+#!/bin/bash
+# ${1} : projet
+#     :        # check all plugins only
+#    : update   # update all plugins 
+#    : plugin name  (franken style)" checkok only one
+#    : plugin name update # update only one
+#set -x
+# 
+# Author : claude.billon@gmail.com
+#
+# This software is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# It is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details
+
+#CURRENT=`git branch | grep '\*' | awk '{print $BRANCH_PROJET}'`
+# Pas d'ajout automatique de patchs
+
+exec 1> >(logger -s -t $(basename $0)) 2>&1
+
+if [ $# -eq 0 ]
+  then
+     echo 'Project parameter missing'
+     exit 1
+fi
+
+if [ ${1} == '-h' ] || [ ${1} == '--help' ];
+then
+  printf " nom du projet parametres optionels update nom du plugin voir detail \n"
+  exit 1
+fi
+. ./${1}.cnf || exit "unable to load ${1}"
+PROJECT=${1}
+# Le script
+CURRENT_DIR=$(dirname $0)
+SCRIPT_NAME=$(basename $0)
+HOSTNAME=$(hostname)
+DATE_DU_JOUR=$(date)
+
+if [ $(whoami) == 'root' ]
+  then
+  echo "Ce script ne doit pas être utilisé par le compte root."
+  exit 1
+fi
+
+# Initialisation signal erreur
+ERROR=0
+
+SEARCH=''
+UPDATE=0
+
+if  [ ${2} ]; then
+  if [ ${2} == 'update' ]; then
+    UPDATE=1
+  else
+    SEARCH=${2}
+    if [ ${3} ]; then
+      if [ ${3} == 'update' ]; then      
+        UPDATE=1 
+      fi
+    fi
+  fi
+fi
+
+
+echo "Parametres : ${1} ${2} ${3}" $HOSTNAME 
+echo "" 
+
+if [ $UPDATE -eq 1 ]; then
+  msg="Projet ${1} recherche plugins $SEARCH avec mise à jour"
+else 
+  msg="Projet ${1} recherche plugins $SEARCH sans mise à jour"
+fi
+
+echo $msg
+echo $msg 
+
+cd $LOCATION
+[ $? -ne 0 ] && echo "*** Problème pour accéder au dossier $LOCATION ***" && echo "Il est impossible d ecrire le log." && exit 1
+
+cd $MOODLE_SRC
+git checkout $BRANCH_PROJET
+[ $? -ne 0 ] && ERROR=1 &&  echo "error ${STATUS} dépôt ${MOODLE_SRC} branche ${BRANCH_PROJET}" && exit 1
+
+cd $DEPOT_MODULES
+
+while read p; do
+  #echo "$p"
+  #eval "for word in $p; do echo \$word; done"
+  myArray=($p)
+  PLUGIN=${myArray[0]}
+  BRANCH=${myArray[1]}
+
+  # test si plugin a un site remote upstream
+
+  #echo "check plugin $PLUGIN branch $BRANCH" 
+
+  
+  cd $DEPOT_MODULES
+  ERROR=0
+  if [[ (($SEARCH = '') && ($PLUGIN != '#'))|| ($SEARCH = $PLUGIN) ]]; then
+  
+  if [[ -d $PLUGIN ]]; then
+  cd $PLUGIN
+  echo "Traitement $PLUGIN $BRANCH"
+  SITEREMOTE=$(git remote | grep 'upstream')
+  # echo 'site remote : ' $SITEREMOTE
+
+  if [[ $SITEREMOTE == 'upstream' ]]; then
+     git fetch upstream
+     [ $? -ne 0 ] && ERROR=1 &&  echo "error ${STATUS} git fetch upstream $PLUGIN" 
+     git show-ref --verify --quiet refs/heads/$BRANCH
+     [ $? -ne 0 ] && ERROR=1 &&  echo "error ${STATUS} git --verify branche $BRANCH" 
+     git checkout $BRANCH
+     [ $? -ne 0 ] && ERROR=1 &&  echo "error ${STATUS} git checkout $BRANCH" 
+     BRANCHREMOTE=$(git rev-parse --abbrev-ref $branch@{upstream})
+     #echo 'Branche remote : ' $BRANCHREMOTE
+     if [[ $BRANCHREMOTE == upstream/$BRANCH ]]; then
+        
+        LOCAL=$(git rev-parse @)
+        REMOTE=$(git rev-parse @{u})
+        BASE=$(git merge-base @ @{u})
+
+        if [ $LOCAL = $REMOTE ]; then
+           echo "OK $PLUGIN $BRANCH up-to-date with remote upstream" 
+        elif [ $LOCAL = $BASE ]; then           
+           echo "need-update $PLUGIN $BRANCH need to pull from remote upstream" 
+           if [ $UPDATE = 1 ]; then
+             git checkout $BRANCH
+             git pull
+             [ $? -ne 0 ] && ERROR=1 &&  echo "error git pull" 
+             
+             echo "$PLUGIN $BRANCH à jour" 
+           fi
+        elif [ $REMOTE = $BASE ]; then           
+           echo "error $PLUGIN $BRANCH need to push to remote upstream" 
+        else           
+           echo "error $PLUGIN $BRANCH diverged with remote upstream" 
+        fi
+     fi
+
+  fi
+
+  else
+    echo "Plugin $PLUGIN non trouvé : " && ERROR=2 
+    echo "Plugin $PLUGIN non trouvé " 
+  fi
+fi
+
+done <"${SCRIPTS_MOODLE}/${PROJECT}.plugins"
+
+# Envoi d'un email de notification
+if [ $ERROR -ne 0 ]
+    then
+        echo "Problème lors de l'éxécution de (${0}). Merci de corriger le processus." 
+        exit 1
+    else
+        echo "Script  (${0}) exécuté avec succès."  
+        exit 0
+fi
