@@ -41,19 +41,24 @@ fi
 echo "******************** ${SCRIPT_NAME} ** ${HOSTNAME} ** ${DATE_DU_JOUR} ****************" 
 echo "Parametres: $PROJET $2 $3 $4 $5 $6" 
 
-#[ "$2" == 'github' ] || [ "$2" == 'bitbucket' ] && exit 1
+#[ "$2" == 'github' ] || [ "$2" == 'bitbucket' ] || [ "$2" == 'gitlab' ] && exit 1
 REPO="$2"
 echo "repository $REPO"
 
 if [ "$3" ];
 then
-  UPSTREAM="git@$REPO:$3"
-  OWNER="$3"
+  if [ "$2" == 'gitlab' ];
+  then
+      UPSTREAM="https://gitlab.com/$3"
+  else 
+      UPSTREAM="git@$REPO:$3"
+  fi  
   echo "git repository's owner $UPSTREAM"
 else
   echo "parameter 2 missing : repository's sowner"
   exit 3
 fi
+OWNER="$3"
 
 if [ "$4" ];
 then
@@ -118,6 +123,7 @@ if [[ $REVERSE -eq 1 ]]; then
   fi
 
 fi
+echo "git clone $UPSTREAM"/"$UNAME.git $PLUGIN"
 git clone "$UPSTREAM"/"$UNAME".git "$PLUGIN"
 [ $? -ne 0 ] && echo "erreur git clone $UPSTREAM/$UNAME.git $PLUGIN" && exit 9
  
