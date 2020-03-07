@@ -77,15 +77,7 @@ else
   msg="Projet ${1} recherche plugins $SEARCH sans mise à jour"
 fi
 
-echo $msg
 echo $msg 
-
-cd $LOCATION
-[ $? -ne 0 ] && echo "*** Problème pour accéder au dossier $LOCATION ***" && echo "Il est impossible d ecrire le log." && exit 1
-
-cd $MOODLE_SRC
-git checkout $BRANCH_PROJET
-[ $? -ne 0 ] && ERROR=1 &&  echo "error ${STATUS} dépôt ${MOODLE_SRC} branche ${BRANCH_PROJET}" && exit 1
 
 cd $DEPOT_MODULES
 
