@@ -13,7 +13,8 @@
 # but WITHOUT ANY WARRANTY; without even the implied warranty of
 # MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 # GNU General Public License for more details
-
+# A partir de la liste <nom-du-projet>.plugins mets à jour la base de code
+# les lignes commençant par # sont condidérées comme des commentaires 
 exec 1> >(logger -s -t $(basename $0)) 2>&1
 
 function run {
@@ -61,12 +62,12 @@ while read p; do
   PLUGIN=${myArray[0]}
   BRANCH=${myArray[1]}
   SHA1=${myArray[2]}
-   echo "Call ${SCRIPTS_MOODLE}/updm $1 $PLUGIN $BRANCH"
-  if [ $PLUGIN != '#' ]; then
-     run "${SCRIPTS_MOODLE}/updm" $1 $PLUGIN $BRANCH
-     echo "Status $?"    
-  fi
-
+  echo "Call ${SCRIPTS_MOODLE}/updm $1 $PLUGIN $BRANCH"
+    # ignore all config line starting with '#'
+  [[ $p =~ ^#.* ]] && continue
+  run "${SCRIPTS_MOODLE}/updm" $1 $PLUGIN $BRANCH
+  echo "Status $?"    
+  
 done <"${SCRIPTS_MOODLE}/${PROJECT}.plugins"
 echo "That's All $PROJECT "
 exit 0

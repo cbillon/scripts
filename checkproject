@@ -23,6 +23,10 @@
 
 exec 1> >(logger -s -t $(basename $0)) 2>&1
 
+rouge=$(tput setaf 1)
+vert=$(tput setaf 2)
+raz=$(tput sgr 0)
+
 if [ $# -eq 0 ]
   then
      echo 'Project parameter missing'
@@ -34,7 +38,7 @@ then
   printf " nom du projet parametres optionels update nom du plugin voir detail \n"
   exit 1
 fi
-. ./${1}.cnf || exit "unable to load ${1}"
+. ./${1}.cnf || exit "$rouge unable to load ${1} $raz"
 PROJECT=${1}
 # Le script
 CURRENT_DIR=$(dirname $0)
@@ -44,7 +48,7 @@ DATE_DU_JOUR=$(date)
 
 if [ $(whoami) == 'root' ]
   then
-  echo "Ce script ne doit pas être utilisé par le compte root."
+  echo "$rouge Ce script ne doit pas être utilisé par le compte root.$raz"
   exit 1
 fi
 
@@ -119,9 +123,9 @@ while read p; do
         BASE=$(git merge-base @ @{u})
 
         if [ $LOCAL = $REMOTE ]; then
-           echo "OK $PLUGIN $BRANCH up-to-date with remote upstream" 
+           echo "$vert OK $PLUGIN $BRANCH up-to-date with remote upstream $raz" 
         elif [ $LOCAL = $BASE ]; then           
-           echo "need-update $PLUGIN $BRANCH need to pull from remote upstream" 
+           echo "$rouge need-update $PLUGIN $BRANCH need to pull from remote upstream $raz" 
            if [ $UPDATE = 1 ]; then
              git checkout $BRANCH
              git pull
@@ -130,9 +134,9 @@ while read p; do
              echo "$PLUGIN $BRANCH à jour" 
            fi
         elif [ $REMOTE = $BASE ]; then           
-           echo "error $PLUGIN $BRANCH need to push to remote upstream" 
+           echo "$rouge error $PLUGIN $BRANCH need to push to remote upstream $raz" 
         else           
-           echo "error $PLUGIN $BRANCH diverged with remote upstream" 
+           echo "$rouge error $PLUGIN $BRANCH diverged with remote upstream $raz" 
         fi
      fi
 
@@ -149,9 +153,9 @@ done <"${SCRIPTS_MOODLE}/${PROJECT}.plugins"
 # Envoi d'un email de notification
 if [ $ERROR -ne 0 ]
     then
-        echo "Problème lors de l'éxécution de (${0}). Merci de corriger le processus." 
+        echo "$rouge Problème lors de l'éxécution de (${0}). Merci de corriger $raz" 
         exit 1
     else
-        echo "Script  (${0}) exécuté avec succès."  
+        echo "$vert Script  (${0}) exécuté avec succès.$raz"  
         exit 0
 fi

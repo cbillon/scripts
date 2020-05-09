@@ -16,6 +16,9 @@
 # GNU General Public License for more details
 
 exec 1> >(logger -s -t $(basename $0)) 2>&1
+rouge=$(tput setaf 1)
+vert=$(tput setaf 2)
+ordinaire=$(tput sgr 0)
 
 if [ $# -eq 0 ]
   then
@@ -106,9 +109,9 @@ if [ "$MAJ" -eq 0 ]; then
   sudo systemctl restart apache2
 
   sudo systemctl restart "php${PHP}-fpm"
-   echo 'Mise à jour OK'
+   echo "$vert Mise à jour OK $ordinaire"
    exit 0
 else 
-  echo 'erreur de mises à jour'
+  echo "$rouge erreur de mises à jour $ordinaire"
   exit 1
 fi
